@@ -1,0 +1,6 @@
+{
+  "name": "RenoLens",
+  "description": "Multi-agent AI home renovation and interior design analyzer",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
