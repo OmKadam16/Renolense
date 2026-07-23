@@ -13,13 +13,13 @@ export default function UploadZone({ type, preview, placeholderImg, placeholderL
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) onFile(file);
+    if (file && file.type.startsWith("image/")) onFile(file);
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     const file = e.dataTransfer.files?.[0];
-    if (file) onFile(file);
+    if (file && file.type.startsWith("image/")) onFile(file);
   };
 
   const handleDragOver = (e: React.DragEvent) => {

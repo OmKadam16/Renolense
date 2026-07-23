@@ -108,7 +108,8 @@ export default function App() {
       setCurrentStep(2);
       setPhase("results");
     } catch (error: any) {
-      setErrorMessage(error?.message || "AI analysis failed. Check your API key and model selection.");
+      const msg = (error?.message || "AI analysis failed. Check your API key and model selection.").replace(/sk-[a-zA-Z0-9]{20,}/g, "[KEY REDACTED]");
+      setErrorMessage(msg);
       setPhase("upload");
     }
   };

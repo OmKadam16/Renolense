@@ -1,4 +1,6 @@
-import { Key, Globe } from "lucide-react";
+import { useState } from "react";
+import OpenAI from "openai";
+import { Key, Globe, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 import { APIConfig, ProviderType } from "../types.js";
 
 interface ModelEntry {
@@ -58,6 +60,33 @@ export default function ApiSettings({ config, onChange, defaultOpen }: Props) {
   const matchedModel = MODELS.find(m => m.model === config.model && m.provider === config.provider);
   const selectedValue = matchedModel ? modelKey(matchedModel) : (config.model ? CUSTOM_MODEL_VALUE : "");
   const usingCustom = !matchedModel;
+
+  const [testStatus, setTestStatus] = useState<"idle" | "testing" | "success" | "error">("idle");
+  const [testMessage, setTestMessage] = useState("");
+
+  const handleTestConnection = async () => {
+    if (!config.apiKey) return;
+    setTestStatus("testing");
+    setTestMessage("");
+    try {
+      const client = new OpenAI({
+        apiKey: config.apiKey,
+        baseURL: config.baseUrl,
+        dangerouslyAllowBrowser: true,
+      });
+      await client.chat.completions.create({
+        model: config.model,
+        messages: [{ role: "user", content: "Say hi" }],
+        max_tokens: 1,
+      });
+      setTestStatus("success");
+      setTestMessage("Connected");
+    } catch (err: any) {
+      setTestStatus("error");
+      const msg = (err?.message || "Connection failed").replace(/sk-[a-zA-Z0-9]{20,}/g, "[KEY REDACTED]");
+      setTestMessage(msg);
+    }
+  };
 
   const content = (
     <div className="p-4 space-y-4">
@@ -137,6 +166,29 @@ export default function ApiSettings({ config, onChange, defaultOpen }: Props) {
           className="w-full px-3 py-2 rounded-lg border border-[#c2c8c5]/40 text-sm font-mono text-[#161c20] bg-white focus:outline-none focus:border-[#009bdc] placeholder:text-gray-300"
         />
       </div>
+
+      <button
+        onClick={handleTestConnection}
+        disabled={!config.apiKey || testStatus === "testing"}
+        className={
+          "w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border text-xs font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed " +
+          (testStatus === "success" ? "border-emerald-300 bg-emerald-50 text-emerald-700" :
+           testStatus === "error" ? "border-red-300 bg-red-50 text-red-700" :
+           "border-[#c2c8c5]/40 text-gray-500 bg-white hover:bg-gray-50")
+        }
+      >
+        {testStatus === "testing" ? (
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+        ) : testStatus === "success" ? (
+          <CheckCircle2 className="w-3.5 h-3.5" />
+        ) : testStatus === "error" ? (
+          <XCircle className="w-3.5 h-3.5" />
+        ) : null}
+        {testStatus === "idle" && "Test Connection"}
+        {testStatus === "testing" && "Testing..."}
+        {testStatus === "success" && testMessage}
+        {testStatus === "error" && testMessage}
+      </button>
 
       <p className="text-[10px] text-gray-400 leading-relaxed">
         Your API key stays in your browser for this session only. It is cleared when you start a new analysis.
