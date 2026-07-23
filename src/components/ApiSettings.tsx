@@ -1,246 +1,150 @@
-import React, { useState } from "react";
-import { ChevronDown, ChevronUp, Settings2, Key, Globe, Cpu, Save, CheckCircle, XCircle, Loader2, Shield } from "lucide-react";
+import { Key, Globe } from "lucide-react";
 import { APIConfig, ProviderType } from "../types.js";
 
-const PROVIDERS: { value: ProviderType; label: string; baseUrl: string }[] = [
-  { value: "openai",   label: "OpenAI",        baseUrl: "https://api.openai.com/v1" },
-  { value: "groq",     label: "Groq",          baseUrl: "https://api.groq.com/openai/v1" },
-  { value: "together", label: "Together",      baseUrl: "https://api.together.xyz/v1" },
-  { value: "deepseek", label: "DeepSeek",      baseUrl: "https://api.deepseek.com" },
-  { value: "github",   label: "GitHub Models", baseUrl: "https://models.inference.ai.azure.com" },
-  { value: "custom",   label: "Custom",        baseUrl: "" },
+interface ModelEntry {
+  model: string;
+  provider: ProviderType;
+  baseUrl: string;
+  providerLabel: string;
+}
+
+const MODELS: ModelEntry[] = [
+  { model: "gpt-4o",              provider: "openai",   baseUrl: "https://api.openai.com/v1",                providerLabel: "OpenAI" },
+  { model: "gpt-4o-mini",         provider: "openai",   baseUrl: "https://api.openai.com/v1",                providerLabel: "OpenAI" },
+  { model: "gpt-4-turbo",         provider: "openai",   baseUrl: "https://api.openai.com/v1",                providerLabel: "OpenAI" },
+  { model: "gpt-4",               provider: "openai",   baseUrl: "https://api.openai.com/v1",                providerLabel: "OpenAI" },
+  { model: "o1",                  provider: "openai",   baseUrl: "https://api.openai.com/v1",                providerLabel: "OpenAI" },
+  { model: "o1-mini",             provider: "openai",   baseUrl: "https://api.openai.com/v1",                providerLabel: "OpenAI" },
+  { model: "o3-mini",             provider: "openai",   baseUrl: "https://api.openai.com/v1",                providerLabel: "OpenAI" },
+  { model: "llama-3.3-70b-versatile",  provider: "groq",   baseUrl: "https://api.groq.com/openai/v1",        providerLabel: "Groq" },
+  { model: "llama-3.1-8b-instant",     provider: "groq",   baseUrl: "https://api.groq.com/openai/v1",        providerLabel: "Groq" },
+  { model: "mixtral-8x7b-32768",       provider: "groq",   baseUrl: "https://api.groq.com/openai/v1",        providerLabel: "Groq" },
+  { model: "gemma2-9b-it",             provider: "groq",   baseUrl: "https://api.groq.com/openai/v1",        providerLabel: "Groq" },
+  { model: "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",  provider: "together", baseUrl: "https://api.together.xyz/v1",  providerLabel: "Together" },
+  { model: "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",   provider: "together", baseUrl: "https://api.together.xyz/v1",  providerLabel: "Together" },
+  { model: "mistralai/Mixtral-8x7B-Instruct-v0.1",          provider: "together", baseUrl: "https://api.together.xyz/v1",  providerLabel: "Together" },
+  { model: "google/gemma-2-27b-it",                         provider: "together", baseUrl: "https://api.together.xyz/v1",  providerLabel: "Together" },
+  { model: "deepseek-chat",         provider: "deepseek", baseUrl: "https://api.deepseek.com",               providerLabel: "DeepSeek" },
+  { model: "deepseek-reasoner",     provider: "deepseek", baseUrl: "https://api.deepseek.com",               providerLabel: "DeepSeek" },
+  { model: "gpt-4o",                provider: "github",   baseUrl: "https://models.inference.ai.azure.com",  providerLabel: "GitHub Models" },
+  { model: "gpt-4o-mini",           provider: "github",   baseUrl: "https://models.inference.ai.azure.com",  providerLabel: "GitHub Models" },
+  { model: "gpt-4-turbo",           provider: "github",   baseUrl: "https://models.inference.ai.azure.com",  providerLabel: "GitHub Models" },
 ];
+
+const CUSTOM_MODEL_VALUE = "__custom__";
+const isCustom = (val: string) => val === CUSTOM_MODEL_VALUE;
+
+function modelKey(m: ModelEntry) { return `${m.provider}||${m.model}`; }
+
+function groupModels() {
+  const groups = new Map<string, ModelEntry[]>();
+  for (const m of MODELS) {
+    const list = groups.get(m.providerLabel) || [];
+    list.push(m);
+    groups.set(m.providerLabel, list);
+  }
+  return groups;
+}
+
+const MODELS_BY_KEY = new Map<string, ModelEntry>(MODELS.map(m => [modelKey(m), m]));
 
 interface Props {
   config: APIConfig;
   onChange: (config: APIConfig) => void;
-  onSave: (config: APIConfig) => void;
-  saved: boolean;
   defaultOpen?: boolean;
 }
 
-type TestStatus = "idle" | "testing" | "success" | "error";
+export default function ApiSettings({ config, onChange, defaultOpen }: Props) {
+  const matchedModel = MODELS.find(m => m.model === config.model && m.provider === config.provider);
+  const selectedValue = matchedModel ? modelKey(matchedModel) : (config.model ? CUSTOM_MODEL_VALUE : "");
+  const usingCustom = !matchedModel;
 
-export default function ApiSettings({ config, onChange, onSave, saved, defaultOpen }: Props) {
-  const [open, setOpen] = useState(defaultOpen ?? false);
-  const [testStatus, setTestStatus] = useState<TestStatus>("idle");
-  const [testMessage, setTestMessage] = useState("");
-  const [isSaving, setIsSaving] = useState(false);
-
-  const handleProviderChange = (provider: ProviderType) => {
-    const preset = PROVIDERS.find(p => p.value === provider);
-    onChange({
-      ...config,
-      provider,
-      baseUrl: preset?.baseUrl || "",
-    });
-  };
-
-  const selectedProvider = PROVIDERS.find(p => p.value === config.provider);
-  const hasActiveKey = !!config.apiKey || !!config.sessionToken;
-
-  const handleTest = async () => {
-    if (!hasActiveKey) return;
-    setTestStatus("testing");
-    setTestMessage("");
-    try {
-      const res = await fetch("/api/test-key", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          apiConfig: config.apiKey ? config : undefined,
-          sessionToken: config.sessionToken || undefined,
-        }),
-      });
-      const data = await res.json();
-      setTestStatus(data.success ? "success" : "error");
-      setTestMessage(data.message);
-    } catch {
-      setTestStatus("error");
-      setTestMessage("Server unreachable");
-    }
-  };
-
-  const handleSave = async () => {
-    if (!config.apiKey) return;
-    setIsSaving(true);
-    try {
-      const res = await fetch("/api/config/set-key", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apiConfig: config }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        onSave({ ...config, sessionToken: data.sessionToken, apiKey: "" });
-      }
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const formContent = (
+  const content = (
     <div className="p-4 space-y-4">
-      {/* Provider */}
       <div>
         <label className="flex items-center gap-1.5 text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">
           <Globe className="w-3.5 h-3.5" />
-          Provider
+          Model
         </label>
         <select
-          value={config.provider}
-          onChange={(e) => handleProviderChange(e.target.value as ProviderType)}
+          value={selectedValue}
+          onChange={(e) => {
+            const val = e.target.value;
+            if (isCustom(val)) {
+              onChange({ ...config, provider: "custom", model: "", baseUrl: "" });
+            } else {
+              const entry = MODELS_BY_KEY.get(val);
+              if (entry) {
+                onChange({ ...config, provider: entry.provider, model: entry.model, baseUrl: entry.baseUrl });
+              }
+            }
+          }}
           className="w-full px-3 py-2 rounded-lg border border-[#c2c8c5]/40 text-sm font-medium text-[#161c20] bg-white focus:outline-none focus:border-[#009bdc]"
         >
-          {PROVIDERS.map((p) => (
-            <option key={p.value} value={p.value}>{p.label}</option>
+          <option value="" disabled>Select a model...</option>
+          {Array.from(groupModels().entries()).map(([providerLabel, models]) => (
+            <optgroup key={providerLabel} label={providerLabel}>
+              {models.map(m => (
+                <option key={modelKey(m)} value={modelKey(m)}>{m.model}</option>
+              ))}
+            </optgroup>
           ))}
+          <optgroup label="Other">
+            <option value={CUSTOM_MODEL_VALUE}>Custom</option>
+          </optgroup>
         </select>
       </div>
 
-      {/* Model */}
-      <div>
-        <label className="flex items-center gap-1.5 text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">
-          <Cpu className="w-3.5 h-3.5" />
-          Model
-        </label>
-        <input
-          type="text"
-          value={config.model}
-          onChange={(e) => onChange({ ...config, model: e.target.value })}
-          placeholder={selectedProvider?.value === "groq" ? "llama-3.3-70b-versatile" : "gpt-4o"}
-          className="w-full px-3 py-2 rounded-lg border border-[#c2c8c5]/40 text-sm font-medium text-[#161c20] bg-white focus:outline-none focus:border-[#009bdc] placeholder:text-gray-300"
-        />
-      </div>
+      {usingCustom && (
+        <>
+          <div>
+            <label className="flex items-center gap-1.5 text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">
+              Model Name
+            </label>
+            <input
+              type="text"
+              value={config.model}
+              onChange={(e) => onChange({ ...config, model: e.target.value })}
+              placeholder="e.g. gpt-4o"
+              className="w-full px-3 py-2 rounded-lg border border-[#c2c8c5]/40 text-sm font-mono text-[#161c20] bg-white focus:outline-none focus:border-[#009bdc] placeholder:text-gray-300"
+            />
+          </div>
+          <div>
+            <label className="flex items-center gap-1.5 text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">
+              Base URL
+            </label>
+            <input
+              type="text"
+              value={config.baseUrl || ""}
+              onChange={(e) => onChange({ ...config, baseUrl: e.target.value })}
+              placeholder="https://api.openai.com/v1"
+              className="w-full px-3 py-2 rounded-lg border border-[#c2c8c5]/40 text-sm font-mono text-[#161c20] bg-white focus:outline-none focus:border-[#009bdc] placeholder:text-gray-300"
+            />
+          </div>
+        </>
+      )}
 
-      {/* API Key */}
       <div>
         <label className="flex items-center gap-1.5 text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">
           <Key className="w-3.5 h-3.5" />
           API Key
         </label>
-        {config.sessionToken ? (
-          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold">
-            <Shield className="w-4 h-4" />
-            Key saved securely on server
-          </div>
-        ) : (
-          <input
-            type="password"
-            value={config.apiKey}
-            onChange={(e) => onChange({ ...config, apiKey: e.target.value })}
-            placeholder="sk-..."
-            className="w-full px-3 py-2 rounded-lg border border-[#c2c8c5]/40 text-sm font-mono text-[#161c20] bg-white focus:outline-none focus:border-[#009bdc] placeholder:text-gray-300"
-          />
-        )}
+        <input
+          type="password"
+          value={config.apiKey}
+          onChange={(e) => onChange({ ...config, apiKey: e.target.value })}
+          placeholder="sk-..."
+          className="w-full px-3 py-2 rounded-lg border border-[#c2c8c5]/40 text-sm font-mono text-[#161c20] bg-white focus:outline-none focus:border-[#009bdc] placeholder:text-gray-300"
+        />
       </div>
-
-      {/* Base URL (shown for Custom) */}
-      {config.provider === "custom" && (
-        <div>
-          <label className="flex items-center gap-1.5 text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">
-            <Globe className="w-3.5 h-3.5" />
-            Base URL
-          </label>
-          <input
-            type="text"
-            value={config.baseUrl || ""}
-            onChange={(e) => onChange({ ...config, baseUrl: e.target.value })}
-            placeholder="https://api.example.com/v1"
-            className="w-full px-3 py-2 rounded-lg border border-[#c2c8c5]/40 text-sm font-mono text-[#161c20] bg-white focus:outline-none focus:border-[#009bdc] placeholder:text-gray-300"
-          />
-        </div>
-      )}
-
-      {/* Save & Test buttons */}
-      <div className="flex flex-col sm:flex-row gap-3 pt-2">
-        {!config.sessionToken ? (
-          <button
-            onClick={handleSave}
-            disabled={!config.apiKey || isSaving}
-            className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg bg-[#1a2e2a] text-white text-xs font-bold hover:opacity-90 transition-all disabled:bg-gray-300 disabled:cursor-not-allowed"
-          >
-            {isSaving ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <Shield className="w-3.5 h-3.5" />
-            )}
-            {isSaving ? "Saving securely..." : "Save Key Securely"}
-          </button>
-        ) : (
-          <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold">
-            <CheckCircle className="w-4 h-4" />
-            Saved to server session
-          </div>
-        )}
-
-        <button
-          onClick={handleTest}
-          disabled={!hasActiveKey || testStatus === "testing"}
-          className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg border border-[#727876]/45 text-xs font-bold text-gray-600 hover:bg-gray-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {testStatus === "testing" ? (
-            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-          ) : (
-            <Globe className="w-3.5 h-3.5" />
-          )}
-          {testStatus === "testing" ? "Testing..." : "Test Connection"}
-        </button>
-      </div>
-
-      {/* Test result */}
-      {testStatus === "success" && (
-        <div className="flex items-center gap-2 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
-          <CheckCircle className="w-4 h-4 flex-shrink-0" />
-          <span className="font-medium">{testMessage}</span>
-        </div>
-      )}
-      {testStatus === "error" && (
-        <div className="flex items-center gap-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-          <XCircle className="w-4 h-4 flex-shrink-0" />
-          <span className="font-medium">{testMessage}</span>
-        </div>
-      )}
 
       <p className="text-[10px] text-gray-400 leading-relaxed">
-        Your API key is sent to the server once and stored in memory for this session. It is never written to your browser's storage.
+        Your API key stays in your browser for this session only. It is cleared when you start a new analysis.
       </p>
     </div>
   );
 
-  if (defaultOpen) {
-    return formContent;
-  }
+  if (defaultOpen) return content;
 
-  return (
-    <div className="bg-white rounded-xl border border-[#c2c8c5]/35 shadow-sm mb-6 overflow-hidden">
-      <button
-        onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors"
-      >
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-full bg-[#d0e7e1] flex items-center justify-center">
-            <Settings2 className="w-4 h-4 text-[#1a2e2a]" />
-          </div>
-          <div className="text-left">
-            <span className="font-bold text-sm text-[#051916] block">API Settings</span>
-            <span className="text-[11px] text-gray-400 font-medium">
-              {config.sessionToken
-                ? `${selectedProvider?.label} · ${config.model} · Securely saved`
-                : config.apiKey
-                  ? `${selectedProvider?.label} · ${config.model}`
-                  : "Not configured"}
-            </span>
-          </div>
-        </div>
-        {open ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
-      </button>
-
-      {open && (
-        <div className="border-t border-[#c2c8c5]/20">
-          {formContent}
-        </div>
-      )}
-    </div>
-  );
+  return content;
 }

@@ -24,6 +24,7 @@ function createClient(config: APIConfig): OpenAI {
   return new OpenAI({
     apiKey: config.apiKey,
     baseURL: config.baseUrl || PROVIDER_PRESETS[config.provider]?.baseURL,
+    dangerouslyAllowBrowser: true,
   });
 }
 

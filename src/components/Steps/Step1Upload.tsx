@@ -15,8 +15,6 @@ interface Props {
   errorMessage: string | null;
   apiConfig: APIConfig;
   onApiConfigChange: (config: APIConfig) => void;
-  onSaveConfig: (config: APIConfig) => void;
-  savedConfig: APIConfig;
   onRoomFile: (file: File) => void;
   onInspirationFile: (file: File) => void;
   onLoadSample: () => void;
@@ -25,11 +23,11 @@ interface Props {
 
 export default function Step1Upload({
   roomPreview, inspirationPreview, errorMessage,
-  apiConfig, onApiConfigChange, onSaveConfig, savedConfig,
+  apiConfig, onApiConfigChange,
   onRoomFile, onInspirationFile, onLoadSample, onAnalyze
 }: Props) {
   const [apiOpen, setApiOpen] = useState(false);
-  const hasKey = !!apiConfig.apiKey || !!apiConfig.sessionToken;
+  const hasKey = !!apiConfig.apiKey;
   const hasImages = !!roomPreview && !!inspirationPreview;
   const isPreset = roomPreview === IMAGES.roomKitchenPreRenovation && inspirationPreview === IMAGES.inspirationKitchenScandinavian;
   const canAnalyze = hasImages && (hasKey || isPreset);
@@ -192,7 +190,7 @@ export default function Step1Upload({
       {/* Divider */}
       <hr className="border-gray-100 mb-6" />
 
-      {/* API Settings */}
+      {/* API Configuration */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden mb-6">
         <button
           onClick={() => setApiOpen(!apiOpen)}
@@ -205,11 +203,7 @@ export default function Step1Upload({
             <div className="text-left">
               <span className="font-bold text-sm text-gray-800 block">API Configuration</span>
               <span className="text-[11px] text-gray-400 font-medium">
-                {apiConfig.sessionToken
-                  ? "Connected · Key saved on server"
-                  : apiConfig.apiKey
-                    ? "Key provided in session"
-                    : "Not configured"}
+                {apiConfig.apiKey ? `${apiConfig.model} · Key set` : "Not configured"}
               </span>
             </div>
           </div>
@@ -218,7 +212,7 @@ export default function Step1Upload({
 
         {apiOpen && (
           <div className="border-t border-gray-100">
-            <ApiSettings config={apiConfig} onChange={onApiConfigChange} onSave={onSaveConfig} saved={JSON.stringify(savedConfig) === JSON.stringify(apiConfig)} defaultOpen />
+            <ApiSettings config={apiConfig} onChange={onApiConfigChange} defaultOpen />
           </div>
         )}
       </div>

@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import ErrorBoundary from "./components/ErrorBoundary.js";
 import Header from "./components/Header.js";
 import Footer from "./components/Footer.js";
@@ -11,6 +11,8 @@ import Step5Savings from "./components/Steps/Step5Savings.js";
 import Step6FullReport from "./components/Steps/Step6FullReport.js";
 import QuestionnairePage from "./components/QuestionnairePage.js";
 import LoadingAnimation from "./components/LoadingAnimation.js";
+import { runMultiAgentAnalysis } from "./agentsOrchestrator.js";
+import { PresetAnalysisReport } from "./presetData.js";
 import { IMAGES } from "./constants.js";
 import { RenoLensAnalysisResult, APIConfig, HomeProfile } from "./types.js";
 
@@ -20,16 +22,6 @@ const DEFAULT_API_CONFIG: APIConfig = {
   model: "gpt-4o",
   baseUrl: "https://api.openai.com/v1",
 };
-
-const STORAGE_KEY = "renolens_api_config";
-
-function loadSavedConfig(): APIConfig {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as APIConfig;
-  } catch { /* ignore */ }
-  return DEFAULT_API_CONFIG;
-}
 
 type Phase = "upload" | "profile" | "loading" | "results";
 
@@ -42,14 +34,7 @@ export default function App() {
   const [currentStep, setCurrentStep] = useState(2);
   const [result, setResult] = useState<RenoLensAnalysisResult | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [savedConfig, setSavedConfig] = useState<APIConfig>(() => loadSavedConfig());
-  const [apiConfig, setApiConfig] = useState<APIConfig>(() => loadSavedConfig());
-  const [homeProfile, setHomeProfile] = useState<HomeProfile | null>(null);
-
-  const handleSaveConfig = useCallback((config: APIConfig) => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
-    setSavedConfig(config);
-  }, []);
+  const [apiConfig, setApiConfig] = useState<APIConfig>(DEFAULT_API_CONFIG);
 
   const handleLoadSample = () => {
     setRoomPreview(IMAGES.roomKitchenPreRenovation);
@@ -83,6 +68,10 @@ export default function App() {
       setErrorMessage("Please upload both Your Room photo and an Inspiration Design image to proceed.");
       return;
     }
+    if (!roomImage.startsWith("PRESET:") && !apiConfig.apiKey) {
+      setErrorMessage("Please enter your API key in the settings below before proceeding.");
+      return;
+    }
     setPhase("profile");
   };
 
@@ -92,85 +81,34 @@ export default function App() {
       lifestyleStyle: answers.lifestyleStyle,
       budgetRange: answers.budgetRange,
     };
-    setHomeProfile(profile);
     setPhase("loading");
     runOrchestrator(profile);
   };
 
   const runOrchestrator = async (profile: HomeProfile) => {
     if (!roomImage || !inspirationImage) return;
-
     setErrorMessage(null);
 
+    if (roomImage.startsWith("PRESET:")) {
+      await new Promise((r) => setTimeout(r, 2500));
+      setResult(PresetAnalysisReport);
+      setCurrentStep(2);
+      setPhase("results");
+      return;
+    }
+
     try {
-      const response = await fetch("/api/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          roomImage,
-          inspirationImage,
-          usePreset: roomImage.startsWith("PRESET:"),
-          ...(roomImage.startsWith("PRESET:")
-            ? {}
-            : apiConfig.sessionToken
-              ? { sessionToken: apiConfig.sessionToken, apiConfig: { provider: apiConfig.provider, model: apiConfig.model, baseUrl: apiConfig.baseUrl } }
-              : { apiConfig }),
-          homeProfile: profile
-        })
-      });
-
-      const data = await response.json();
-
-      if (data.success) {
-        const resultData = data.data;
-
-        // Migrate old server response format (regretAnalysis → realityCheck)
-        if (!resultData.realityCheck) {
-          resultData.warnings = [...(resultData.warnings || []), "Reality Check data is simulated — the AI agent returned incomplete results."];
-          if (resultData.regretAnalysis) {
-            resultData.realityCheck = {
-              riskLevel: resultData.regretAnalysis.riskLevel || "Unknown",
-              overallScore: resultData.finalReport?.regretRisk ?? 50,
-              homeFit: { score: 50, insight: "Home fit assessment not available.", details: [] },
-              styleFit: { score: 50, insight: "Style fit assessment not available.", details: [] },
-              budgetFit: { score: 50, insight: "Budget fit assessment not available.", details: [] },
-              topRisks: (resultData.regretAnalysis.warnings || []).map((w: string, i: number) => ({
-                category: "General",
-                risk: w,
-                severity: "Medium",
-                likelihood: "Possible",
-                mitigation: resultData.regretAnalysis.explanations?.[i] || "Review this concern with your contractor.",
-                regretTimeline: "Variable"
-              })),
-              beforeYouCommit: ["Review all identified risks with your contractor before proceeding."],
-              satisfactionCurve: [
-                { year: 1, score: 70, note: "Initial satisfaction based on available data" },
-                { year: 5, score: 55, note: "Long-term satisfaction may vary" }
-              ]
-            };
-          } else {
-            resultData.realityCheck = {
-              riskLevel: "Unknown",
-              overallScore: 50,
-              homeFit: { score: 50, insight: "Home fit assessment not available.", details: [] },
-              styleFit: { score: 50, insight: "Style fit assessment not available.", details: [] },
-              budgetFit: { score: 50, insight: "Budget fit assessment not available.", details: [] },
-              topRisks: [],
-              beforeYouCommit: [],
-              satisfactionCurve: []
-            };
-          }
-        }
-
-        setResult(resultData);
-        setCurrentStep(2);
-        setPhase("results");
-      } else {
-        setErrorMessage(data.error || "A secure connection error occurred during model analysis.");
-        setPhase("upload");
-      }
-    } catch {
-      setErrorMessage("The server backend was unreachable. Please confirm port is running and active.");
+      const resultData = await runMultiAgentAnalysis(
+        roomImage,
+        inspirationImage,
+        apiConfig,
+        profile
+      );
+      setResult(resultData);
+      setCurrentStep(2);
+      setPhase("results");
+    } catch (error: any) {
+      setErrorMessage(error?.message || "AI analysis failed. Check your API key and model selection.");
       setPhase("upload");
     }
   };
@@ -181,7 +119,7 @@ export default function App() {
     setInspirationPreview(null);
     setRoomImage(null);
     setInspirationImage(null);
-    setHomeProfile(null);
+    setApiConfig(DEFAULT_API_CONFIG);
     setCurrentStep(2);
     setPhase("upload");
   };
@@ -200,8 +138,6 @@ export default function App() {
               errorMessage={errorMessage}
               apiConfig={apiConfig}
               onApiConfigChange={setApiConfig}
-              onSaveConfig={handleSaveConfig}
-              savedConfig={savedConfig}
               onRoomFile={handleRoomFile}
               onInspirationFile={handleInspirationFile}
               onLoadSample={handleLoadSample}
