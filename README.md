@@ -1,5 +1,7 @@
 # RenoLens
 
+![RenoLens overview](docs/bento.png)
+
 AI-powered home renovation planning. Upload a photo of your current room and an inspiration design image — RenoLens runs a multi-agent AI pipeline to analyze compatibility, estimate costs, assess regret risks, suggest savings, and generate a comprehensive RenoScore report.
 
 ## Supported AI Providers
